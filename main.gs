@@ -1,8 +1,11 @@
 /**
- * <title>: Spreadsheet ETL Engine
- * <version>: 1.0.0
- * <author>: JuanLoaiza007
- * <license>: MIT
+ * @fileoverview Spreadsheet ETL Engine
+ * @version 1.0.0
+ * @author JuanLoaiza007
+ * @license MIT
+ * @description A dynamic engine for extracting, transforming, and loading data within
+ * Google Sheets. It features a custom expressive language for rule-based processing,
+ * built-in syntax validation, and automated error handling.
  */
 
 // --- Global configuration ---
