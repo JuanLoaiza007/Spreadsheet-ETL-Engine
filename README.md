@@ -128,3 +128,7 @@ _filter:Age -> eval: src(Age) >= 18
 ## License
 This project is licensed under a permissive open-source license.  
 See the `LICENSE` file for details.
+
+## Technical Foundations
+For detailed explanations of the parsing logic, expression validation,
+and regular expression design, see the `/docs` directory.
