@@ -1,6 +1,6 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 1.0.0
+ * @version 1.0.1
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
@@ -48,8 +48,10 @@ function runMapping() {
 
     validateRequirements(sourceSheet, mapSheet, config);
 
-    const sourceData = sourceSheet.getDataRange().getValues();
+    const sourceRange = sourceSheet.getDataRange();
+    const sourceData = sourceRange.getDisplayValues();
     const sourceHeaders = sourceData.shift();
+
     if (sourceHeaders.length === 0)
       throw new Error("La hoja de origen no tiene encabezados.");
 
@@ -58,11 +60,11 @@ function runMapping() {
 
     const { filterRules, outputColumns } = parseRules(mapSheet, sourceHeaders);
     if (outputColumns.length === 0)
-      throw new Error("No hay columnas de salida válidas.");
+      throw new Error("No se encontraron columnas de salida válidas.");
 
     const finalData = [];
 
-    sourceData.forEach((row, rowIndex) => {
+    sourceData.forEach((row) => {
       const outputRowRefs = {};
       const currentRowNum = finalData.length + 2;
 
@@ -128,7 +130,7 @@ function runMapping() {
 
     ui.alert(
       "Éxito",
-      `Se han generado ${finalData.length - 1} filas exitosamente.`,
+      `Proceso completado. Se generaron ${finalData.length - 1} filas.`,
       ui.ButtonSet.OK,
     );
   } catch (error) {
