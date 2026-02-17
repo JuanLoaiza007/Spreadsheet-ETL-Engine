@@ -1,6 +1,6 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 1.0.1
+ * @version 1.0.2
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
@@ -233,7 +233,16 @@ function parseRules(mapSheet, sourceHeaders) {
         instruction = rawInstruction.replace(PREFIX.CONSTANT, "").trim();
       } else if (rawInstruction.startsWith(PREFIX.FORMULA)) {
         type = "FORMULA";
-        instruction = rawInstruction.replace(PREFIX.FORMULA, "").trim();
+        const formulaBody = rawInstruction.replace(PREFIX.FORMULA, "").trim();
+
+        const equalsCount = (formulaBody.match(/=/g) || []).length;
+        if (!formulaBody.startsWith("=") || equalsCount !== 1) {
+          throw new Error(
+            `Error en "${header}": Después de "${PREFIX.FORMULA}" debe seguir exactamente un símbolo "=" inicial para la fórmula.`,
+          );
+        }
+
+        instruction = formulaBody;
       }
 
       outputColumns.push({
