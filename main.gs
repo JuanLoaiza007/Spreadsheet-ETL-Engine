@@ -1,6 +1,6 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 1.0.3-preview
+ * @version 1.0.3-rc1
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
@@ -80,11 +80,8 @@ function runMapping() {
           const pattern = `${PREFIX.SRC}${SYMBOLS.OPEN}${h}${SYMBOLS.CLOSE}`;
           if (val.includes(pattern)) {
             let replacement = row[i];
-            if (
-              col.isFormula &&
-              isNaN(replacement.toString().replace("%", ""))
-            ) {
-              replacement = `"${replacement}"`;
+            if (col.isFormula) {
+              replacement = formatForFormula(replacement);
             }
             val = val.split(pattern).join(replacement);
           }
@@ -109,13 +106,20 @@ function runMapping() {
         return res;
       });
 
-      const passes = filterRules.every((f) => {
-        if (!f.isEval) return true;
-        let cond = f.instruction;
+      let passes = true;
+      for (const f of filterRules) {
+        if (!f.isEval) continue;
 
+        let cond = f.instruction;
         sourceHeaders.forEach((h, i) => {
           const pattern = `${PREFIX.SRC}${SYMBOLS.OPEN}${h}${SYMBOLS.CLOSE}`;
-          if (cond.includes(pattern)) cond = cond.split(pattern).join(row[i]);
+          if (cond.includes(pattern)) {
+            let replacement = row[i];
+            if (f.instruction.includes(PREFIX.FORMULA)) {
+              replacement = formatForFormula(replacement);
+            }
+            cond = cond.split(pattern).join(replacement);
+          }
         });
 
         Object.keys(outputValuesForFilter).forEach((h) => {
@@ -124,8 +128,12 @@ function runMapping() {
             cond = cond.split(pattern).join(outputValuesForFilter[h]);
         });
 
-        return safeEval(cond, f.header, sandboxSheet);
-      });
+        const filterResult = safeEval(cond, f.header, sandboxSheet);
+        if (!filterResult) {
+          passes = false;
+          break;
+        }
+      }
 
       if (!passes) return;
       finalData.push(processedRow);
@@ -232,10 +240,21 @@ function parseRules(mapSheet, sourceHeaders) {
     }
 
     if (header.startsWith(PREFIX.FILTER)) {
+      let instruction = rawInstruction.replace(PREFIX.EVAL, "").trim();
+
+      if (instruction.startsWith(PREFIX.FORMULA)) {
+        const formulaBody = instruction.replace(PREFIX.FORMULA, "").trim();
+        if (!formulaBody.startsWith("=")) {
+          throw new Error(
+            `Error en "${header}": Después de "${PREFIX.FORMULA}" debe seguir el símbolo "=" inicial.`,
+          );
+        }
+      }
+
       filterRules.push({
         header: header,
         isEval: rawInstruction.startsWith(PREFIX.EVAL),
-        instruction: rawInstruction.replace(PREFIX.EVAL, "").trim(),
+        instruction: instruction,
       });
     } else {
       let type = "DIRECT";
@@ -248,10 +267,9 @@ function parseRules(mapSheet, sourceHeaders) {
         type = "FORMULA";
         const formulaBody = rawInstruction.replace(PREFIX.FORMULA, "").trim();
 
-        const equalsCount = (formulaBody.match(/=/g) || []).length;
-        if (!formulaBody.startsWith("=") || equalsCount !== 1) {
+        if (!formulaBody.startsWith("=")) {
           throw new Error(
-            `Error en "${header}": Después de "${PREFIX.FORMULA}" debe seguir exactamente un símbolo "=" inicial para la fórmula.`,
+            `Error en "${header}": Después de "${PREFIX.FORMULA}" debe seguir el símbolo "=" inicial.`,
           );
         }
 
@@ -270,6 +288,16 @@ function parseRules(mapSheet, sourceHeaders) {
   return { filterRules, outputColumns };
 }
 
+function formatForFormula(value) {
+  if (value === null || value === undefined || value === "") return '""';
+  const str = value.toString().trim();
+  const dateMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dateMatch) {
+    return `DATE(${dateMatch[3]};${dateMatch[2]};${dateMatch[1]})`;
+  }
+  return isNaN(str.replace("%", "")) ? `"${str}"` : str;
+}
+
 function safeEval(expression, contextHeader, sandboxSheet) {
   const operatorsLogic = {
     [SYMBOLS.OP_EQUAL]: (a, b) => a == b,
@@ -285,11 +313,20 @@ function safeEval(expression, contextHeader, sandboxSheet) {
   return conditions.some((cond) => {
     const trimmed = cond.trim();
 
-    const invalidOpMatch = trimmed.match(/[=><!]{3,}|[><]{2,}/);
-    if (invalidOpMatch) {
-      throw new Error(
-        `Operador "${invalidOpMatch[0]}" inválido en "${contextHeader}".`,
+    if (trimmed.startsWith(PREFIX.FORMULA)) {
+      const formulaPart = trimmed.replace(PREFIX.FORMULA, "").trim();
+      const cell = sandboxSheet.getRange("A1");
+      cell.clear();
+      cell.setFormula(formulaPart);
+      SpreadsheetApp.flush();
+      const result = cell.getValue();
+      const isTrue =
+        result === true || result.toString().toUpperCase() === "TRUE";
+
+      console.log(
+        `[DEBUG-FORMULA] ${contextHeader}: ${formulaPart} => ${result} (Verdict: ${isTrue})`,
       );
+      return isTrue;
     }
 
     const op = [
