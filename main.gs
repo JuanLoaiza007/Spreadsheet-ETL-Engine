@@ -1,6 +1,6 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 1.0.2
+ * @version 1.0.3-preview
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
@@ -62,23 +62,16 @@ function runMapping() {
     if (outputColumns.length === 0)
       throw new Error("No se encontraron columnas de salida válidas.");
 
+    const sandboxSheet =
+      ss.getSheetByName("_EVAL_SANDBOX_") || ss.insertSheet("_EVAL_SANDBOX_");
+    sandboxSheet.hideSheet();
+
     const finalData = [];
 
     sourceData.forEach((row) => {
       const outputRowRefs = {};
+      const outputValuesForFilter = {};
       const currentRowNum = finalData.length + 2;
-
-      const passes = filterRules.every((f) => {
-        if (!f.isEval) return true;
-        let cond = f.instruction;
-        sourceHeaders.forEach((h, i) => {
-          const pattern = `${PREFIX.SRC}${SYMBOLS.OPEN}${h}${SYMBOLS.CLOSE}`;
-          if (cond.includes(pattern)) cond = cond.split(pattern).join(row[i]);
-        });
-        return safeEval(cond, f.header);
-      });
-
-      if (!passes) return;
 
       const processedRow = outputColumns.map((col, idx) => {
         let val = col.instruction;
@@ -112,9 +105,29 @@ function runMapping() {
         }
 
         outputRowRefs[col.header] = getColumnLetter(idx + 1) + currentRowNum;
+        outputValuesForFilter[col.header] = res;
         return res;
       });
 
+      const passes = filterRules.every((f) => {
+        if (!f.isEval) return true;
+        let cond = f.instruction;
+
+        sourceHeaders.forEach((h, i) => {
+          const pattern = `${PREFIX.SRC}${SYMBOLS.OPEN}${h}${SYMBOLS.CLOSE}`;
+          if (cond.includes(pattern)) cond = cond.split(pattern).join(row[i]);
+        });
+
+        Object.keys(outputValuesForFilter).forEach((h) => {
+          const pattern = `${PREFIX.SELF}${SYMBOLS.OPEN}${h}${SYMBOLS.CLOSE}`;
+          if (cond.includes(pattern))
+            cond = cond.split(pattern).join(outputValuesForFilter[h]);
+        });
+
+        return safeEval(cond, f.header, sandboxSheet);
+      });
+
+      if (!passes) return;
       finalData.push(processedRow);
     });
 
@@ -257,7 +270,7 @@ function parseRules(mapSheet, sourceHeaders) {
   return { filterRules, outputColumns };
 }
 
-function safeEval(expression, contextHeader = "Filtro") {
+function safeEval(expression, contextHeader, sandboxSheet) {
   const operatorsLogic = {
     [SYMBOLS.OP_EQUAL]: (a, b) => a == b,
     [SYMBOLS.OP_NOT_EQUAL]: (a, b) => a != b,
@@ -290,10 +303,22 @@ function safeEval(expression, contextHeader = "Filtro") {
 
     if (!op) return false;
 
-    const parts = trimmed.split(op).map((p) => p.trim().replace(/^"|"$/g, ""));
+    let parts = trimmed.split(op).map((p) => p.trim());
 
-    if (parts.length !== 2) return false;
-    return operatorsLogic[op](parts[0], parts[1]);
+    parts = parts.map((p) => {
+      if (p.startsWith("=")) {
+        sandboxSheet.getRange("A1").setFormula(p);
+        SpreadsheetApp.flush();
+        return sandboxSheet.getRange("A1").getValue();
+      }
+      return p.replace(/^"|"$/g, "");
+    });
+
+    const result = operatorsLogic[op](parts[0], parts[1]);
+    console.log(
+      `[DEBUG] ${contextHeader}: ${parts[0]} ${op} ${parts[1]} => ${result}`,
+    );
+    return result;
   });
 }
 
