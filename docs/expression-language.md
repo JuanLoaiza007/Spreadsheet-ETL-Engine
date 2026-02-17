@@ -1,6 +1,6 @@
 # Expression Language Design
 
-Version: 1.0.0
+Version: 1.0.3-rc1
 
 ## Overview
 The Spreadsheet ETL Engine implements a **controlled expression language** designed to allow non-technical users to define data transformation rules without executing arbitrary JavaScript code.
@@ -36,14 +36,15 @@ This approach enables:
 The expression language is based on **explicit prefixes and delimiters** rather than free-form scripting.
 
 ### Prefixes
-| Prefix      | Purpose                        |
-|-------------|--------------------------------|
-| `_filter:`  | Marks a filter rule            |
-| `eval:`     | Indicates logical evaluation   |
-| `constant:` | Defines static output values   |
-| `formula:`  | Indicates spreadsheet formulas |
-| `src`       | References source columns      |
-| `self`      | References generated columns   |
+| Prefix      | Purpose                          |
+|-------------|----------------------------------|
+| `//`        | Marks comment lines in Map sheet |
+| `_filter:`  | Marks a filter rule              |
+| `eval:`     | Indicates logical evaluation     |
+| `constant:` | Defines static output values     |
+| `formula:`  | Indicates spreadsheet formulas   |
+| `src`       | References source columns        |
+| `self`      | References generated columns     |
 
 ## Delimiters
 The engine uses explicit delimiters to define tokens:
@@ -113,6 +114,13 @@ An operand represents a value used in logical evaluation.
             | <number>
             | <string>
             | <identifier>
+            | <formula-operand>
+```
+
+#### Formula Operand
+A formula can be used as an operand in conditions. It must start with `=`.
+```
+<formula-operand> ::= "=" <formula-body>
 ```
 
 ### 6. Operators
@@ -153,7 +161,10 @@ Equivalent compact form:
 ### 10. Filter Rule
 ```
 <filter-rule> ::= "_filter:" "eval:" <expression>
+                | "_filter:" "eval:" "formula:" "=" <formula-body>
 ```
+
+The formula variant allows spreadsheet formulas to be used as filter conditions. The formula must return TRUE or FALSE.
 
 ### 11. Constant Rule
 ```
@@ -163,8 +174,18 @@ Equivalent compact form:
 
 ### 12. Formula Rule
 ```
-<formula-rule> ::= "formula:" <string>
+<formula-rule> ::= "formula:" "=" <formula-body>
 ```
+
+The formula must start with `=` after the `formula:` prefix.
+
+### 13. Direct Rule
+A direct reference to a source column without any prefix.
+```
+<direct-rule> ::= <identifier>
+```
+
+The identifier must match a column name from the source sheet.
 
 ## Structural Constraints
 The grammar intentionally **does not allow**:
@@ -222,6 +243,27 @@ self[ColumnName]
 ```
 Resolves to the generated column reference within the same output row.
 This allows column chaining without circular dependencies.
+
+## Comment Lines
+Lines starting with `//` in the Map sheet are ignored during parsing:
+```
+// This is a comment and will be skipped
+Name    src[FullName]
+```
+
+## Formula Evaluation Sandbox
+Formulas are evaluated in a hidden sandbox sheet (`_EVAL_SANDBOX_`) to avoid interference with user data. This ensures safe and isolated formula execution.
+
+## Automatic Value Formatting
+When values are used within formulas, they are automatically formatted:
+
+| Input Value  | Formatted As       |
+|--------------|--------------------|
+| Empty/null   | `""`               |
+| `DD/MM/YYYY` | `DATE(YYYY;MM;DD)` |
+| `DD-MM-YYYY` | `DATE(YYYY;MM;DD)` |
+| Text         | `"text"` (quoted)  |
+| Number       | Unchanged          |
 
 ## Delimiter Validation
 Before parsing, each instruction is validated for balanced delimiters.
