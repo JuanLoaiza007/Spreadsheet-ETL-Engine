@@ -1,12 +1,18 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 0.0.1
+ * @version 0.0.2-alpha
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
  * Google Sheets. It features a custom expressive language for rule-based processing,
  * built-in syntax validation, and automated error handling.
  */
+
+const DEFAULT_CONFIG = {
+  source: "Source",
+  map: "Map",
+  output: "Output",
+};
 
 // =============================================================================
 // LEXER - Tokenizador
@@ -487,15 +493,19 @@ function getColumnLetter(col) {
 /**
  * Main function that executes the transformation process.
  */
-function runMapping() {
+function runMapping(config = DEFAULT_CONFIG) {
   const ui = SpreadsheetApp.getUi();
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const config = loadConfig(ss);
-
     const sourceSheet = ss.getSheetByName(config.source);
     const mapSheet = ss.getSheetByName(config.map);
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `Iniciando mapeo, espera un momento.`,
+      "ETL Engine",
+      4,
+    );
 
     if (!sourceSheet || !mapSheet) {
       throw new Error("Hojas de origen o mapeo no encontradas.");
@@ -615,10 +625,16 @@ function runMapping() {
       .getRange(1, 1, finalData.length, outputHeaders.length)
       .setValues(finalData);
 
-    ui.alert(
-      "Éxito",
-      `Proceso completado. Se generaron ${finalData.length - 1} filas.`,
-      ui.ButtonSet.OK,
+    const summary = [
+      `📊 Filas: ${finalData.length - 1}`,
+      `📥 Src: ${config.source}`,
+      `📑 Out: ${config.output}`,
+    ].join("  |  ");
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      summary,
+      "ETL Engine - Operación Exitosa!",
+      10,
     );
   } catch (error) {
     console.error("Stack:", error.stack);
@@ -738,26 +754,4 @@ function resolveInstruction(
   });
 
   return result;
-}
-
-/**
- * Carga la configuración desde la hoja Dashboard
- */
-function loadConfig(ss) {
-  const dashSheet = ss.getSheetByName("Dashboard");
-  let cfg = { source: "Source", map: "Map", output: "Output" };
-
-  if (dashSheet) {
-    dashSheet
-      .getDataRange()
-      .getValues()
-      .forEach((row) => {
-        if (!row[0]) return;
-        const key = row[0].toString().toLowerCase().trim();
-        if (cfg.hasOwnProperty(key)) {
-          cfg[key] = row[1].toString().trim();
-        }
-      });
-  }
-  return cfg;
 }
