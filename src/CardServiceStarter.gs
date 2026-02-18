@@ -1,70 +1,154 @@
+/**
+ * @fileoverview
+ * @version 0.0.1
+ * @author JuanLoaiza007
+ * @license MIT
+ * @description Self-Healing Infrastructure for the Spreadsheet ETL Engine
+ */
+
 function onOpen() {
+  getConfigSheet();
   SpreadsheetApp.getUi()
     .createMenu("Utilidades")
-    .addItem("Configuración", "showForm")
+    .addSubMenu(
+      SpreadsheetApp.getUi()
+        .createMenu("Configuración")
+        .addItem("1. Cambiar Fuente", "setSource")
+        .addItem("2. Cambiar Mapa", "setMap")
+        .addItem("3. Cambiar Salida", "setOutput")
+        .addSeparator()
+        .addItem("Ver Configuración Actual", "showCurrentConfig"),
+    )
+    .addSeparator()
+    .addItem("Ejecutar ETL", "executeETL")
     .addToUi();
 }
 
-function showForm() {
+/** --- INFRASTRUCTURE MANAGEMENT --- **/
+function getConfigSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets().map((s) => s.getName());
-  const defaultMap = sheets.find((n) => n.includes("Map_")) || "";
+  let sheet = ss.getSheetByName("_Config");
 
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <script src="https://cdn.tailwindcss.com"></script>
-    </head>
-    <body class="p-5 antialiased">
-      <div class="space-y-4">
-        
-        <div>
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Fuente</label>
-          <select id="source" class="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-            ${sheets.map((name) => `<option value="${name}">${name}</option>`).join("")}
-          </select>
-        </div>
+  if (!sheet) {
+    sheet = ss.insertSheet("_Config");
+    sheet.hideSheet();
+    sheet.getRange("A1:B3").setValues([
+      ["source", ""],
+      ["map", ""],
+      ["output", "Output"],
+    ]);
+  }
+  return sheet;
+}
 
-        <div>
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Mapa</label>
-          <select id="map" class="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-            ${sheets.map((name) => `<option value="${name}" ${name === defaultMap ? "selected" : ""}>${name}</option>`).join("")}
-          </select>
-        </div>
+function updateSingleConfig(key, value) {
+  const config = getSavedConfig();
+  config[key] = value;
+  getConfigSheet()
+    .getRange("A1:B3")
+    .setValues([
+      ["source", config.source],
+      ["map", config.map],
+      ["output", config.output],
+    ]);
+}
 
-        <div>
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Nombre de Salida</label>
-          <input type="text" id="dest" value="Output" class="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-        </div>
+function getSavedConfig() {
+  const data = getConfigSheet().getRange("A1:B3").getValues();
+  return {
+    source: data[0][1],
+    map: data[1][1],
+    output: data[2][1],
+  };
+}
 
-        <button onclick="ejecutar()" 
-          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-md transition duration-200 shadow-sm active:transform active:scale-95 mt-2">
-          EJECUTAR
-        </button>
+/** --- UI AND EVENTS --- **/
+function setSource() {
+  const config = getSavedConfig();
+  const selected = promptForSheetWithMarker(
+    "Fuente",
+    "Seleccione la hoja origen:",
+    config.source,
+  );
+  if (selected) updateSingleConfig("source", selected);
+}
 
-      </div>
+function setMap() {
+  const config = getSavedConfig();
+  const selected = promptForSheetWithMarker(
+    "Mapa",
+    "Seleccione la hoja de mapeo:",
+    config.map,
+  );
+  if (selected) updateSingleConfig("map", selected);
+}
 
-      <script>
-        function ejecutar() {
-          const data = {
-            src: document.getElementById('source').value,
-            map: document.getElementById('map').value,
-            dst: document.getElementById('dest').value
-          };
-          
-          const resumen = "Configuración:\\n\\n- Fuente: " + data.src + "\\n- Mapa: " + data.map + "\\n- Salida: " + data.dst;
-          alert(resumen);
-          google.script.host.close();
-        }
-      </script>
-    </body>
-    </html>
-  `;
+function setOutput() {
+  const ui = SpreadsheetApp.getUi();
+  const config = getSavedConfig();
+  const res = ui.prompt(
+    "Salida",
+    `Actual: ${config.output}\n\nNuevo nombre:`,
+    ui.ButtonSet.OK_CANCEL,
+  );
+  if (res.getSelectedButton() === ui.Button.OK) {
+    updateSingleConfig("output", res.getResponseText().trim() || "Output");
+  }
+}
 
-  const ui = HtmlService.createHtmlOutput(htmlContent)
-    .setWidth(400)
-    .setHeight(400);
+function promptForSheetWithMarker(title, message, currentSelection) {
+  const ui = SpreadsheetApp.getUi();
+  const sheets = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheets()
+    .map((s) => s.getName())
+    .filter((name) => name !== "_Config");
 
-  SpreadsheetApp.getUi().showModalDialog(ui, "Configuración del Proyecto");
+  const listText = sheets
+    .map(
+      (name, i) =>
+        `${i + 1}. ${name}${name === currentSelection ? " [*]" : ""}`,
+    )
+    .join("\n");
+  const res = ui.prompt(
+    title,
+    `${message}\n\n${listText}\n\nNúmero:`,
+    ui.ButtonSet.OK_CANCEL,
+  );
+
+  if (res.getSelectedButton() !== ui.Button.OK) return null;
+  const index = parseInt(res.getResponseText().trim(), 10) - 1;
+  return index >= 0 && index < sheets.length
+    ? sheets[index]
+    : (ui.alert("Error de selección"), null);
+}
+
+function executeETL() {
+  const config = getSavedConfig();
+  if (!config.source || !config.map) {
+    SpreadsheetApp.getUi().alert(
+      "Error",
+      "Configuración incompleta.",
+      SpreadsheetApp.getUi().ButtonSet.OK,
+    );
+    return;
+  }
+
+  try {
+    runMapping(config);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert(
+      "Error",
+      e.message,
+      SpreadsheetApp.getUi().ButtonSet.OK,
+    );
+  }
+}
+
+function showCurrentConfig() {
+  const c = getSavedConfig();
+  SpreadsheetApp.getUi().alert(
+    "Configuración",
+    `Fuente: ${c.source}\nMapa: ${c.map}\nSalida: ${c.output}`,
+    SpreadsheetApp.getUi().ButtonSet.OK,
+  );
 }

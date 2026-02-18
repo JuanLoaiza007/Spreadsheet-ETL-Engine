@@ -1,6 +1,6 @@
 /**
  * @fileoverview Spreadsheet ETL Engine
- * @version 1.0.3-rc1
+ * @version 1.0.4-rc1
  * @author JuanLoaiza007
  * @license MIT
  * @description A dynamic engine for extracting, transforming, and loading data within
@@ -32,15 +32,26 @@ const SYMBOLS = {
   OP_LESS: "<",
 };
 
+const DEFAULT_CONFIG = {
+  source: "Responses",
+  map: "Map",
+  output: "Output",
+};
+
 /**
  * Main function that executes the transformation process.
  */
-function runMapping() {
+function runMapping(config = DEFAULT_CONFIG) {
   const ui = SpreadsheetApp.getUi();
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    `Iniciando mapeo, espera un momento.`,
+    "ETL Engine",
+    4,
+  );
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const config = loadConfig(ss);
     validateConfigNames(config);
 
     const sourceSheet = ss.getSheetByName(config.source);
@@ -149,34 +160,28 @@ function runMapping() {
       .getRange(1, 1, finalData.length, outputHeaders.length)
       .setValues(finalData);
 
-    ui.alert(
-      "Éxito",
-      `Proceso completado. Se generaron ${finalData.length - 1} filas.`,
-      ui.ButtonSet.OK,
+    const resultRows = finalData.length - 1;
+
+    const summary = [
+      `📊 Filas: ${resultRows}`,
+      `📥 Src: ${config.source}`,
+      `📑 Out: ${config.output}`,
+    ].join("  |  ");
+
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      summary,
+      "ETL Engine - Operación Exitosa!",
+      10,
     );
+    return { rows: resultRows };
   } catch (error) {
     console.error("Stack:", error.stack);
     ui.alert("Error de ejecución", error.message, ui.ButtonSet.OK);
+    throw error;
   }
 }
 
 // --- Support functions ---
-
-function loadConfig(ss) {
-  const dashSheet = ss.getSheetByName("Dashboard");
-  let cfg = { source: "Source", map: "Map", output: "Output" };
-  if (dashSheet) {
-    dashSheet
-      .getDataRange()
-      .getValues()
-      .forEach((row) => {
-        if (!row[0]) return;
-        const key = row[0].toString().toLowerCase().trim();
-        if (cfg.hasOwnProperty(key)) cfg[key] = row[1].toString().trim();
-      });
-  }
-  return cfg;
-}
 
 function validateConfigNames(config) {
   ["source", "map", "output"].forEach((key) => {
