@@ -32,16 +32,10 @@ const SYMBOLS = {
   OP_LESS: "<",
 };
 
-const DEFAULT_CONFIG = {
-  source: "Responses",
-  map: "Map",
-  output: "Output",
-};
-
 /**
  * Main function that executes the transformation process.
  */
-function runMapping(config = DEFAULT_CONFIG) {
+function runMapping(config) {
   const ui = SpreadsheetApp.getUi();
 
   SpreadsheetApp.getActiveSpreadsheet().toast(
@@ -52,8 +46,6 @@ function runMapping(config = DEFAULT_CONFIG) {
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    validateConfigNames(config);
-
     const sourceSheet = ss.getSheetByName(config.source);
     const mapSheet = ss.getSheetByName(config.map);
 
@@ -153,10 +145,8 @@ function runMapping(config = DEFAULT_CONFIG) {
     const outputHeaders = outputColumns.map((c) => c.header);
     finalData.unshift(outputHeaders);
 
-    const outputSheet =
-      ss.getSheetByName(config.output) || ss.insertSheet(config.output);
+    const outputSheet = ss.insertSheet(config.output);
     outputSheet
-      .clear()
       .getRange(1, 1, finalData.length, outputHeaders.length)
       .setValues(finalData);
 
@@ -182,13 +172,6 @@ function runMapping(config = DEFAULT_CONFIG) {
 }
 
 // --- Support functions ---
-
-function validateConfigNames(config) {
-  ["source", "map", "output"].forEach((key) => {
-    if (!config[key] || config[key].trim() === "")
-      throw new Error(`Falta nombre de hoja "${key}".`);
-  });
-}
 
 function validateRequirements(source, map, config) {
   if (!source || !map)

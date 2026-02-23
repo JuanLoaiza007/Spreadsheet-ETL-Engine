@@ -1,154 +1,72 @@
 /**
  * @fileoverview
- * @version 0.0.1
+ * @version 1.1.0
  * @author JuanLoaiza007
  * @license MIT
- * @description Self-Healing Infrastructure for the Spreadsheet ETL Engine
+ * @description Volatile UI for the Spreadsheet ETL Engine
  */
 
 function onOpen() {
-  getConfigSheet();
   SpreadsheetApp.getUi()
     .createMenu("Utilidades")
-    .addSubMenu(
-      SpreadsheetApp.getUi()
-        .createMenu("Configuración")
-        .addItem("1. Cambiar Fuente", "setSource")
-        .addItem("2. Cambiar Mapa", "setMap")
-        .addItem("3. Cambiar Salida", "setOutput")
-        .addSeparator()
-        .addItem("Ver Configuración Actual", "showCurrentConfig"),
-    )
-    .addSeparator()
     .addItem("Ejecutar ETL", "executeETL")
     .addToUi();
 }
 
-/** --- INFRASTRUCTURE MANAGEMENT --- **/
-function getConfigSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("_Config");
-
-  if (!sheet) {
-    sheet = ss.insertSheet("_Config");
-    sheet.hideSheet();
-    sheet.getRange("A1:B3").setValues([
-      ["source", ""],
-      ["map", ""],
-      ["output", "Output"],
-    ]);
-  }
-  return sheet;
-}
-
-function updateSingleConfig(key, value) {
-  const config = getSavedConfig();
-  config[key] = value;
-  getConfigSheet()
-    .getRange("A1:B3")
-    .setValues([
-      ["source", config.source],
-      ["map", config.map],
-      ["output", config.output],
-    ]);
-}
-
-function getSavedConfig() {
-  const data = getConfigSheet().getRange("A1:B3").getValues();
-  return {
-    source: data[0][1],
-    map: data[1][1],
-    output: data[2][1],
-  };
-}
-
 /** --- UI AND EVENTS --- **/
-function setSource() {
-  const config = getSavedConfig();
-  const selected = promptForSheetWithMarker(
-    "Fuente",
-    "Seleccione la hoja origen:",
-    config.source,
-  );
-  if (selected) updateSingleConfig("source", selected);
-}
-
-function setMap() {
-  const config = getSavedConfig();
-  const selected = promptForSheetWithMarker(
-    "Mapa",
-    "Seleccione la hoja de mapeo:",
-    config.map,
-  );
-  if (selected) updateSingleConfig("map", selected);
-}
-
-function setOutput() {
-  const ui = SpreadsheetApp.getUi();
-  const config = getSavedConfig();
-  const res = ui.prompt(
-    "Salida",
-    `Actual: ${config.output}\n\nNuevo nombre:`,
-    ui.ButtonSet.OK_CANCEL,
-  );
-  if (res.getSelectedButton() === ui.Button.OK) {
-    updateSingleConfig("output", res.getResponseText().trim() || "Output");
-  }
-}
-
-function promptForSheetWithMarker(title, message, currentSelection) {
-  const ui = SpreadsheetApp.getUi();
-  const sheets = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheets()
-    .map((s) => s.getName())
-    .filter((name) => name !== "_Config");
-
-  const listText = sheets
-    .map(
-      (name, i) =>
-        `${i + 1}. ${name}${name === currentSelection ? " [*]" : ""}`,
-    )
-    .join("\n");
-  const res = ui.prompt(
-    title,
-    `${message}\n\n${listText}\n\nNúmero:`,
-    ui.ButtonSet.OK_CANCEL,
-  );
-
-  if (res.getSelectedButton() !== ui.Button.OK) return null;
-  const index = parseInt(res.getResponseText().trim(), 10) - 1;
-  return index >= 0 && index < sheets.length
-    ? sheets[index]
-    : (ui.alert("Error de selección"), null);
-}
 
 function executeETL() {
-  const config = getSavedConfig();
-  if (!config.source || !config.map) {
-    SpreadsheetApp.getUi().alert(
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+
+  const sheetList = sheets.map((s, i) => `${i + 1}. ${s.getName()}`).join("\n");
+
+  const res = ui.prompt(
+    "Ejecutar ETL",
+    `Selecciona las hojas (Source, Map) usando sus números:\n\n${sheetList}\n\nFormato: int, int (ej: 1, 2)`,
+    ui.ButtonSet.OK_CANCEL,
+  );
+
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+
+  const input = res
+    .getResponseText()
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10) - 1);
+
+  if (input.length !== 2 || isNaN(input[0]) || isNaN(input[1])) {
+    ui.alert(
       "Error",
-      "Configuración incompleta.",
-      SpreadsheetApp.getUi().ButtonSet.OK,
+      "Formato inválido. Debe ser 'int, int'.",
+      ui.ButtonSet.OK,
     );
     return;
   }
 
+  const sourceName = sheets[input[0]] ? sheets[input[0]].getName() : null;
+  const mapName = sheets[input[1]] ? sheets[input[1]].getName() : null;
+
+  if (!sourceName || !mapName) {
+    ui.alert("Error", "Números de hoja fuera de rango.", ui.ButtonSet.OK);
+    return;
+  }
+
+  const timestamp = Utilities.formatDate(
+    new Date(),
+    ss.getSpreadsheetTimeZone(),
+    "yyyy-MM-dd HH:mm:ss",
+  );
+
+  const config = {
+    source: sourceName,
+    map: mapName,
+    output: `OUTPUT ${timestamp}`,
+  };
+
   try {
     runMapping(config);
   } catch (e) {
-    SpreadsheetApp.getUi().alert(
-      "Error",
-      e.message,
-      SpreadsheetApp.getUi().ButtonSet.OK,
-    );
+    ui.alert("Error", e.message, ui.ButtonSet.OK);
   }
-}
-
-function showCurrentConfig() {
-  const c = getSavedConfig();
-  SpreadsheetApp.getUi().alert(
-    "Configuración",
-    `Fuente: ${c.source}\nMapa: ${c.map}\nSalida: ${c.output}`,
-    SpreadsheetApp.getUi().ButtonSet.OK,
-  );
 }
